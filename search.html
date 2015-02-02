@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <!--[if IE]>
+      <script src="https://html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+  <![endif]-->
+</head>
+<body class="">
+  <div id="wrap">
+    <header class="static-header" style="background-color:black">
+      <div id="container" class="cf">
+        <nav class="cf">
+          <a href="#" id="logo" class="ir">Peatix</a>
+          <ul class="logged-in-nav cf">
+            <li><a href="/search">Search</a></li>
+            <li><a href="/keywords">Keywords</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <div id="content-main">
+      <h2>Search</h2>
+      <div class="box-gray" style="width:80%;margin:0 auto;">
+        <form method="GET">
+          <table>
+            <tr>
+              <td><label for="keyword">Keyword: </label></td>
+              <td><input class="txt-field" name="q" value="{{.Keyword}}" placeholder="keyword"></td>
+            </tr>
+            <tr>
+              <td><label for="page">Page: </label>
+              <td><input class="txt-field" name="p" value="{{.Page}}" placeholder="1"></td>
+            </tr>
+            <tr>
+              <td colspan="2" align="center"><input type="submit" value="Search" class="button primary" style="width:200px"></td>
+            </tr>
+          </table>
+        </form>
+      </div>
+      <div class="box-white" style="width:100%;"> 
+        <table class="back-event-list">
+          <thead>
+            <tr>
+              <th>Event ID</th>
+              <th style="width:80%">Event Name</th>
+            </tr>
+          </thead>
+          <tbody>
+{{ range .Events }}
+            <tr>
+              <td class="event-name">{{.Id}}</td>
+              <td class="event-name"><a href="http://peatix.com/event/{{.Id}}" target="_blank">{{.Name}}</a></td>
+            </tr>
+{{ end }}
+          <tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</body>
