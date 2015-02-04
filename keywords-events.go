@@ -28,8 +28,16 @@ type Configuration struct {
 }
 
 type Event struct {
-    Id   string
-    Name string
+    EventId  string
+    Name     string
+    Subtitle string
+    UserId   string
+    UserName string
+    Datetime string
+    VenueName string
+    Address string
+    SeatsSold string
+    SeatsMax string
 }
 
 type SearchResult struct {
@@ -102,7 +110,17 @@ func getEvents(eids []string) ([]Event, error) {
 
     event := Event{}
     for rows.Next() {
-        err := rows.Scan(&event.Id, &event.Name)
+        err := rows.Scan(
+            &event.EventId,
+            &event.Name,
+            &event.Subtitle,
+            &event.UserId,
+            &event.UserName,
+            &event.Datetime,
+            &event.VenueName,
+            &event.Address,
+            &event.SeatsSold,
+            &event.SeatsMax)
         if err != nil {
                 log.Fatal(err)
         }
