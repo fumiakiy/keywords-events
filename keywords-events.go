@@ -4,6 +4,7 @@ import (
     "bytes"
     "database/sql"
     "encoding/json"
+    "encoding/csv"
     "fmt"
     "html/template"
     "log"
@@ -176,6 +177,11 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
     keywords := query["q"]
     pages := query["p"]
 
+    if _, ok := query["csv"]; ok {
+        csvHandler(w, r);
+        return;
+    }
+
     result := new(SearchResult)
     if len(keywords) <= 0 {
         err := templates.ExecuteTemplate(w, "search.html", result)
@@ -211,6 +217,50 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
     }
+}
+
+func csvHandler(w http.ResponseWriter, r *http.Request) {
+    query := r.URL.Query()
+    keywords := query["q"]
+    pages := query["p"]
+
+    w.Header().Set("Content-Type", "text/csv")
+    w.Header().Set("Content-disposition", "attachment; filename=" + url.QueryEscape(keywords[0]) + "_" + pages[0] + ".csv")
+
+    result := new(SearchResult)
+    if len(keywords) <= 0 {
+        http.Redirect(w, r, "/search/", http.StatusFound)
+        return;
+    }
+
+    keyword := keywords[0]
+
+    var page int
+    if len(pages) > 0 {
+        page, _ = strconv.Atoi(pages[0])
+    } else {
+        page = 1
+    }
+
+    result.Keyword = keyword
+    result.Page = page
+
+    eids, err := searchEvents(keyword, page)
+    events, total, err := getEvents(eids)
+    if err != nil {
+        http.Redirect(w, r, "/search/", http.StatusFound)
+        return
+    }
+
+    result.Events = events
+    result.Total = total
+
+    csvWriter := csv.NewWriter(w)
+
+    for _, e := range events {
+        _ = csvWriter.Write([]string { e.EventId, e.Name, e.Subtitle, e.UserId, e.UserName, e.Datetime, e.VenueName, e.Address, e.SeatsSold })
+    }
+    csvWriter.Flush()
 }
 
 func getDescriptiveStrings(eid string) (string, error) {
