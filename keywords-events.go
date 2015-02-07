@@ -42,6 +42,7 @@ type Event struct {
 
 type SearchResult struct {
     Events []Event
+    Total int
     Keyword string
     Page int
 }
@@ -75,11 +76,11 @@ func readConfig() error {
     return nil;
 }
 
-func getEvents(eids []string) ([]Event, error) {
+func getEvents(eids []string) ([]Event, int, error) {
     var events []Event
 
     if len(eids) <= 0 {
-        return events, nil
+        return events, 0, nil
     }
 
     db, err := sql.Open("mysql", config.Dsn)
@@ -108,6 +109,7 @@ func getEvents(eids []string) ([]Event, error) {
     }
     defer rows.Close()
 
+    var totalSeatsSold int
     event := Event{}
     for rows.Next() {
         err := rows.Scan(
@@ -125,13 +127,15 @@ func getEvents(eids []string) ([]Event, error) {
                 log.Fatal(err)
         }
         events = append(events, event)
+        seatsSoldInt, _ := strconv.Atoi(event.SeatsSold)
+        totalSeatsSold += seatsSoldInt
     }
     err = rows.Err()
     if err != nil {
         log.Fatal(err)
     }
 
-    return events, nil
+    return events, totalSeatsSold, nil
 }
 
 func searchEvents(keyword string, page int) ([]string, error) {
@@ -194,13 +198,14 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
     result.Page = page
 
     eids, err := searchEvents(keyword, page)
-    events, err := getEvents(eids)
+    events, total, err := getEvents(eids)
     if err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
 
     result.Events = events
+    result.Total = total
 
     err = templates.ExecuteTemplate(w, "search.html", result)
     if err != nil {
