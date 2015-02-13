@@ -285,6 +285,10 @@ func getDescriptiveStrings(eid string) (string, error) {
     )
 
     err = row.Scan(&_name, &_venue_name, &_description, &_subtitle)
+    if err == sql.ErrNoRows {
+        log.Println("No rows " + eid)
+        return "", err
+    }
     if err != nil {
         log.Fatal(err)
         return "", err
@@ -309,7 +313,11 @@ func getDescriptiveStrings(eid string) (string, error) {
 }
 
 func collectKeywords(eid string) ([]WordsResult, error) {
+    var results []WordsResult
     words, err := getDescriptiveStrings(eid)
+    if err == sql.ErrNoRows {
+        return results, nil
+    }
     if err != nil {
         log.Fatal(err)
         return nil, err
@@ -342,7 +350,6 @@ func collectKeywords(eid string) ([]WordsResult, error) {
 
     //fmt.Printf("%#v", root)
 
-    var results []WordsResult
     for k, v := range root {
         result := WordsResult{Word:k, Weight:v.(float64)}
         results = append(results, result)
