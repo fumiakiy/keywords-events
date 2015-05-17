@@ -20,6 +20,7 @@ import (
 type Configuration struct {
     Dsn   string
     Esurl string
+    Esurl2 string
     Sql1   string
     Sql2   string
     Size  int
@@ -45,6 +46,7 @@ type SearchResult struct {
     Events []Event
     Total int
     Keyword string
+    EventId string
     Page int
 }
 
@@ -58,7 +60,7 @@ type KeywordsResult struct {
     Eid string
 }
 
-var templates = template.Must(template.ParseFiles("search.html", "keywords.html"))
+var templates = template.Must(template.ParseFiles("search-keyword.html", "search-similar.html", "keywords.html"))
 var config Configuration
 
 func readConfig() error {
@@ -139,15 +141,16 @@ func getEvents(eids []string) ([]Event, int, error) {
     return events, totalSeatsSold, nil
 }
 
-func searchEvents(keyword string, page int) ([]string, error) {
+func searchEventsByKeyword(keyword string, page int) ([]string, error) {
+    encodedKeyword := url.QueryEscape(keyword)
+    url := fmt.Sprintf(config.Esurl, strconv.Itoa(page), encodedKeyword)
     page -= 1
     if page < 0 {
         page = 0
     }
     page = config.Size * page
-    encodedKeyword := url.QueryEscape(keyword)
 
-    resp, err := http.Get(fmt.Sprintf(config.Esurl, strconv.Itoa(page), encodedKeyword))
+    resp, err := http.Get(url)
     if err != nil {
         log.Fatal(err)
         return nil, nil
@@ -172,26 +175,86 @@ func searchEvents(keyword string, page int) ([]string, error) {
     return eids, nil
 }
 
-func searchHandler(w http.ResponseWriter, r *http.Request) {
+func searchSimilarEventsByEventId(eventId string, page int) ([]string, error) {
+    mlt := make(map[string]interface {})
+    fields := [2]string{"name", "description"}
+    mlt["fields"] = fields
+
+    doc := make(map[string]string)
+    doc["_index"] = "event2"
+    doc["_type"] = "default"
+    doc["_id"] = eventId
+    docs := make([]map[string]string, 1)
+    docs[0] = doc
+    mlt["docs"] = docs
+    mlt["min_term_freq"] = 1
+    mlt["max_doc_freq"] = 10000
+
+    query := make(map[string]interface{})
+    query["more_like_this"] = mlt
+
+    page -= 1
+    if page < 0 {
+        page = 0
+    }
+    page = config.Size * page
+
+    q := make(map[string]interface{})
+    q["from"] = strconv.Itoa(page)
+    q["size"] = "100"
+    q["query"] = query
+
+    buf := new(bytes.Buffer)
+    encoder := json.NewEncoder(buf)
+    err := encoder.Encode(q)
+    if err != nil {
+        return nil, err;
+    }
+
+    jsonstr := buf.String()
+
+    client := &http.Client{}
+    r, _ := http.NewRequest("POST", config.Esurl2, bytes.NewBufferString(jsonstr))
+
+    r.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+    r.Header.Add("Content-Length", strconv.Itoa(len(jsonstr)))
+
+    resp, err := client.Do(r)
+    if err != nil {
+        log.Fatal(err)
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    var root map[string]interface{}
+    decoder := json.NewDecoder(resp.Body)
+    err = decoder.Decode(&root)
+    if err != nil {
+        log.Fatal(err)
+        return nil, nil
+    }
+
+    _data, _ := root[config.Datakey].(map[string]interface{})
+    data, _ := _data[config.Datakey].([]interface{})
+    eids := make([]string, len(data))
+    for i, _row := range data {
+        row, _ := _row.(map[string]interface{})
+        eids[i] = row[config.Valuekey].(string)
+    }
+    return eids, nil
+}
+
+func similarSearchHandler(w http.ResponseWriter, r *http.Request) {
     query := r.URL.Query()
-    keywords := query["q"]
+    eventIds := query["q"]
     pages := query["p"]
 
     if _, ok := query["csv"]; ok {
-        csvHandler(w, r);
+        similarSearchCsvHandler(w, r);
         return;
     }
 
     result := new(SearchResult)
-    if len(keywords) <= 0 {
-        err := templates.ExecuteTemplate(w, "search.html", result)
-        if err != nil {
-            http.Error(w, err.Error(), http.StatusInternalServerError)
-        }
-        return;
-    }
-
-    keyword := keywords[0]
 
     var page int
     if len(pages) > 0 {
@@ -200,10 +263,20 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
         page = 1
     }
 
-    result.Keyword = keyword
     result.Page = page
 
-    eids, err := searchEvents(keyword, page)
+    if len(eventIds) <= 0 {
+        err := templates.ExecuteTemplate(w, "search-similar.html", result)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+        }
+        return;
+    }
+
+    eventId := eventIds[0]
+    result.EventId = eventId
+
+    eids, err := searchSimilarEventsByEventId(eventId, page)
     events, total, err := getEvents(eids)
     if err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
@@ -213,13 +286,104 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
     result.Events = events
     result.Total = total
 
-    err = templates.ExecuteTemplate(w, "search.html", result)
+    err = templates.ExecuteTemplate(w, "search-similar.html", result)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
     }
 }
 
-func csvHandler(w http.ResponseWriter, r *http.Request) {
+func keywordSearchHandler(w http.ResponseWriter, r *http.Request) {
+    query := r.URL.Query()
+    keywords := query["q"]
+    pages := query["p"]
+
+    if _, ok := query["csv"]; ok {
+        keywordSearchCsvHandler(w, r);
+        return;
+    }
+
+    result := new(SearchResult)
+
+    var page int
+    if len(pages) > 0 {
+        page, _ = strconv.Atoi(pages[0])
+    } else {
+        page = 1
+    }
+    result.Page = page
+    if len(keywords) <= 0 {
+        err := templates.ExecuteTemplate(w, "search-keyword.html", result)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+        }
+        return;
+    }
+
+    keyword := keywords[0]
+
+    result.Keyword = keyword
+
+    eids, err := searchEventsByKeyword(keyword, page)
+    events, total, err := getEvents(eids)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    result.Events = events
+    result.Total = total
+
+    err = templates.ExecuteTemplate(w, "search-keyword.html", result)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+    }
+}
+
+func similarSearchCsvHandler(w http.ResponseWriter, r *http.Request) {
+    query := r.URL.Query()
+    eventIds := query["q"]
+    pages := query["p"]
+
+    w.Header().Set("Content-Type", "text/csv")
+    w.Header().Set("Content-disposition", "attachment; filename=" + url.QueryEscape(eventIds[0]) + "_" + pages[0] + ".csv")
+
+    result := new(SearchResult)
+    if len(eventIds) <= 0 {
+        http.Redirect(w, r, "/search/similar", http.StatusFound)
+        return;
+    }
+
+    eventId := eventIds[0]
+
+    var page int
+    if len(pages) > 0 {
+        page, _ = strconv.Atoi(pages[0])
+    } else {
+        page = 1
+    }
+
+    result.EventId = eventId
+    result.Page = page
+
+    eids, err := searchSimilarEventsByEventId(eventId, page)
+    events, total, err := getEvents(eids)
+    if err != nil {
+        http.Redirect(w, r, "/search/similar", http.StatusFound)
+        return
+    }
+
+    result.Events = events
+    result.Total = total
+
+    csvWriter := csv.NewWriter(w)
+
+    for _, e := range events {
+        _ = csvWriter.Write([]string { e.EventId, e.Name, e.Subtitle, e.UserId, e.UserName, e.Datetime, e.VenueName, e.Address, e.SeatsSold })
+    }
+    csvWriter.Flush()
+}
+
+func keywordSearchCsvHandler(w http.ResponseWriter, r *http.Request) {
     query := r.URL.Query()
     keywords := query["q"]
     pages := query["p"]
@@ -229,7 +393,7 @@ func csvHandler(w http.ResponseWriter, r *http.Request) {
 
     result := new(SearchResult)
     if len(keywords) <= 0 {
-        http.Redirect(w, r, "/search/", http.StatusFound)
+        http.Redirect(w, r, "/search/keyword", http.StatusFound)
         return;
     }
 
@@ -245,10 +409,10 @@ func csvHandler(w http.ResponseWriter, r *http.Request) {
     result.Keyword = keyword
     result.Page = page
 
-    eids, err := searchEvents(keyword, page)
+    eids, err := searchEventsByKeyword(keyword, page)
     events, total, err := getEvents(eids)
     if err != nil {
-        http.Redirect(w, r, "/search/", http.StatusFound)
+        http.Redirect(w, r, "/search/keyword", http.StatusFound)
         return
     }
 
@@ -406,7 +570,8 @@ func main() {
     //}
     //keyword := flag.Args()[0]
 
-    http.HandleFunc("/search/", searchHandler)
+    http.HandleFunc("/search/keyword/", keywordSearchHandler)
+    http.HandleFunc("/search/similar/", similarSearchHandler)
     http.HandleFunc("/keywords/", keywordsHandler)
     http.ListenAndServe(":8080", nil)
 }
