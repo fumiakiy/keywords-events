@@ -48,6 +48,9 @@ type SearchResult struct {
     Keyword string
     EventId string
     Page int
+    Mtf int
+    Xdf int
+    Xqt int
 }
 
 type WordsResult struct {
@@ -175,7 +178,7 @@ func searchEventsByKeyword(keyword string, page int) ([]string, error) {
     return eids, nil
 }
 
-func searchSimilarEventsByEventId(eventId string, page int) ([]string, error) {
+func searchSimilarEventsByEventId(eventId string, page int, mtf int, xdf int, xqt int) ([]string, error) {
     mlt := make(map[string]interface {})
     fields := [2]string{"name", "description"}
     mlt["fields"] = fields
@@ -187,8 +190,9 @@ func searchSimilarEventsByEventId(eventId string, page int) ([]string, error) {
     docs := make([]map[string]string, 1)
     docs[0] = doc
     mlt["docs"] = docs
-    mlt["min_term_freq"] = 1
-    mlt["max_doc_freq"] = 10000
+    mlt["min_term_freq"] = mtf
+    mlt["max_doc_freq"] = xdf
+    mlt["max_query_terms"] = xqt
 
     query := make(map[string]interface{})
     query["more_like_this"] = mlt
@@ -248,6 +252,9 @@ func similarSearchHandler(w http.ResponseWriter, r *http.Request) {
     query := r.URL.Query()
     eventIds := query["q"]
     pages := query["p"]
+    mtfs := query["mtf"]
+    xdfs := query["xdf"]
+    xqts := query["xqt"]
 
     if _, ok := query["csv"]; ok {
         similarSearchCsvHandler(w, r);
@@ -265,6 +272,28 @@ func similarSearchHandler(w http.ResponseWriter, r *http.Request) {
 
     result.Page = page
 
+    var mtf int
+    var xdf int
+    var xqt int
+    if (len(mtfs) > 0) {
+        mtf, _ = strconv.Atoi(mtfs[0])
+    } else {
+        mtf = 1
+    }
+    result.Mtf = mtf
+    if (len(xdfs) > 0) {
+        xdf, _ = strconv.Atoi(xdfs[0])
+    } else {
+        xdf = 10000
+    }
+    result.Xdf = xdf
+    if (len(xqts) > 0) {
+        xqt, _ = strconv.Atoi(xqts[0])
+    } else {
+        xqt = 25
+    }
+    result.Xqt = xqt
+
     if len(eventIds) <= 0 {
         err := templates.ExecuteTemplate(w, "search-similar.html", result)
         if err != nil {
@@ -276,7 +305,7 @@ func similarSearchHandler(w http.ResponseWriter, r *http.Request) {
     eventId := eventIds[0]
     result.EventId = eventId
 
-    eids, err := searchSimilarEventsByEventId(eventId, page)
+    eids, err := searchSimilarEventsByEventId(eventId, page, mtf, xdf, xqt)
     events, total, err := getEvents(eids)
     if err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
@@ -343,6 +372,9 @@ func similarSearchCsvHandler(w http.ResponseWriter, r *http.Request) {
     query := r.URL.Query()
     eventIds := query["q"]
     pages := query["p"]
+    mtfs := query["mtf"]
+    xdfs := query["xdf"]
+    xqts := query["xqt"]
 
     w.Header().Set("Content-Type", "text/csv")
     w.Header().Set("Content-disposition", "attachment; filename=" + url.QueryEscape(eventIds[0]) + "_" + pages[0] + ".csv")
@@ -365,7 +397,25 @@ func similarSearchCsvHandler(w http.ResponseWriter, r *http.Request) {
     result.EventId = eventId
     result.Page = page
 
-    eids, err := searchSimilarEventsByEventId(eventId, page)
+    var mtf int
+    var xdf int
+    var xqt int
+    if (len(mtfs) > 0) {
+        mtf, _ = strconv.Atoi(mtfs[0])
+    } else {
+        mtf = 1
+    }
+    if (len(xdfs) > 0) {
+        xdf, _ = strconv.Atoi(xdfs[0])
+    } else {
+        xdf = 1
+    }
+    if (len(xqts) > 0) {
+        xqt, _ = strconv.Atoi(xqts[0])
+    } else {
+        xqt = 1
+    }
+    eids, err := searchSimilarEventsByEventId(eventId, page, mtf, xdf, xqt)
     events, total, err := getEvents(eids)
     if err != nil {
         http.Redirect(w, r, "/search/similar", http.StatusFound)
